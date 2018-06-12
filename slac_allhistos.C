@@ -1,0 +1,690 @@
+#include <iostream>
+#include <fstream>
+#include <TGClient.h>
+#include <TCanvas.h>
+#include <TF1.h>
+#include <TRandom.h>
+#include <TGButton.h>
+#include <TGFrame.h>
+#include <TRootEmbeddedCanvas.h>
+#include <RQ_OBJECT.h>
+#include "TFile.h"
+#include "TTree.h"
+#include "TH1.h"
+#include "TH2.h"
+
+
+/*****************OPTIONS*************************/
+/**/const Int_t histo_max = 4596; //for adc histos only
+/**/const bool y_axis_log = false;
+/**/const bool show_rawdata = false;
+/**/const bool show_tdcadj = false;
+/**/const bool show_nongeo = false;
+/**/const bool show_geo = true;
+/**/const bool run_pedsig_hitcount = false;
+/**/const bool run_double_hit = false;    
+/**/const bool plot_center_alone = false;
+/**/const bool plot_energy_sum = false;
+/**/const bool do_fits = false;
+/**/const int Ncalo=21;
+/**/const int Ntdc=8;
+/*************************************************/
+
+int numentries;
+TFile *froot;
+TTree *troot;
+
+Double_t hit_adc[Ncalo][11000];
+Double_t hit_mod[Ncalo][11000];
+TPad *traw;
+TPad *craw;
+TPad *craw2;
+TPad *c1;
+TPad *c2;
+TPad *c3;
+TPad *c4;
+TPad *c5;
+TPad *c6;
+TPad *c7;
+TPad *c8;
+TPad *c9;
+	
+	
+class MyMainFrame {
+    RQ_OBJECT("MyMainFrame")
+private:
+    TGMainFrame         *fMain;
+    TRootEmbeddedCanvas *fEcanvas;
+    TFile *Read();
+    Int_t i;
+    TGTextEntry *jump;
+ 
+public:
+    MyMainFrame(const TGWindow *p,UInt_t w,UInt_t h);
+    virtual ~MyMainFrame();
+    void DoDraw();
+    void DoDraw2();
+	 void Jump();
+};
+
+
+
+MyMainFrame::MyMainFrame(const TGWindow *p,UInt_t w,UInt_t h) {
+   // Create a main frame
+   fMain = new TGMainFrame(p,w,h);
+
+   // Create canvas widget
+   fEcanvas = new TRootEmbeddedCanvas("Ecanvas",fMain,900,800);
+   fMain->AddFrame(fEcanvas, new TGLayoutHints(kLHintsExpandX|kLHintsExpandY, 10,10,10,1));
+
+   // Create a horizontal frame widget with buttons 
+   TGHorizontalFrame *hframe = new TGHorizontalFrame(fMain,200,40);
+	
+   i=0;
+
+	jump = new TGTextEntry(hframe,"000000");
+	jump->Connect("ReturnPressed()","MyMainFrame",this,"Jump()");//action of the button
+	jump->SetToolTipText("integers only", 100);
+	hframe->AddFrame(jump,new TGLayoutHints(kLHintsCenterX,5,5,3,4));//position
+
+   TGTextButton *draw2 = new TGTextButton(hframe,"&c1");//button constructor
+   draw2->Connect("Clicked()","MyMainFrame",this,"DoDraw2()");//action of the button 
+   hframe->AddFrame(draw2, new TGLayoutHints(kLHintsCenterX,5,5,3,4));//position 
+
+   TGTextButton *draw = new TGTextButton(hframe,"&c2");//button constructor
+   draw->Connect("Clicked()","MyMainFrame",this,"DoDraw()");//action of the button 
+   hframe->AddFrame(draw, new TGLayoutHints(kLHintsCenterX,5,5,3,4));//position 
+
+   TGTextButton *exit = new TGTextButton(hframe,"&Exit","gApplication->Terminate(0)");
+
+   hframe->AddFrame(exit, new TGLayoutHints(kLHintsCenterX,5,5,3,4));
+   fMain->AddFrame(hframe, new TGLayoutHints(kLHintsCenterX,2,2,2,2));
+	
+   // Set a name to the main frame
+   fMain->SetWindowName("Event Display");
+
+   // Map all subwindows of main frame
+   fMain->MapSubwindows();
+
+   // Initialize the layout algorithm
+   fMain->Resize(fMain->GetDefaultSize());
+
+   // Map main frame
+   fMain->MapWindow();
+	DoDraw();
+}
+
+//this method listens to the "previous" button
+void MyMainFrame::Jump() {
+
+	gStyle->SetOptStat(0);
+	TCanvas *fCanvas = fEcanvas->GetCanvas();
+
+    fCanvas->cd();
+    fCanvas->Update();
+}
+
+//this method listens to the "previous" button
+void MyMainFrame::DoDraw2() {//c1
+	
+	TCanvas *fCanvas = fEcanvas->GetCanvas();
+   fCanvas->cd();
+
+	traw->Draw();
+   fCanvas->Update();
+}
+
+//this method listens to the "next" button
+void MyMainFrame::DoDraw() {
+	gStyle->SetOptStat(0);
+	TCanvas *fCanvas = fEcanvas->GetCanvas();
+    fCanvas->cd();
+    fCanvas->Update();
+}
+
+
+
+
+MyMainFrame::~MyMainFrame() {
+   // Clean up used widgets: frames, buttons, layout hints
+   fMain->Cleanup();
+   delete fMain;
+}
+
+   
+
+
+
+
+
+void slac_allhistos(int nrun){
+	cout << "Nrun= "<< nrun << endl;
+	gStyle->SetOptStat(1);
+	TFile *froot =  new TFile(Form("./data/calotest%d.root",nrun));
+	TTree *troot = (TTree*)froot->Get("tdata");
+	Int_t adc[32]; // raw data array for the adc
+	Int_t tdc[32]; // raw data array for the tdc
+	troot->SetBranchAddress("adc",&adc);
+	troot->SetBranchAddress("tdc",&tdc);
+	 
+	
+
+	if(nrun>=1){
+		Int_t adc_index[Ncalo]={0,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21};// Index for 0-1,0-2,0-3,0-4,0-5,M1,M2,M3,M4
+	//	int loc_index[21]={0,1,2,3,4,5,6,8,7,9,10,12,11,13,14,16,15,17,18,20,19};//use module #-1 first 5  are outer 
+   //"O-01","O-05","O-02","O-04","O-03", next 16 middle "M-2","M-3","M-1","M-4"
+	}
+	
+
+	//*************
+	//**Locations**
+	//*************
+	if(nrun>=1){
+			int div[5]={5,2,4,6,8}; // index of 3x3 division for outer "O-01","O-02","O-03","O-04","O-05"
+			int div2[4]={1,3,7,9}; // index of 3x3 division for middle :"M-1","M-2","M-3","M-4"
+	 }
+
+
+	
+	//determines which module is in the center
+	Int_t center_block = 0;
+	bool run2hit_outer = false;
+	for(int i=0;i<5;i++){
+		 if(div[i]==5){
+			  center_block = i;
+	//		cout<<"center block is: "<<center_block<<endl;
+			run2hit_outer=true;
+		 }
+	}
+	int middle_block; //center module when it's a middle type (M-0X)
+	bool run2hit_middle=false;
+	for(int i=0;i<4;i++){
+		if(div2[i]==5){
+				middle_block = i*4+5; //sets middle_block to lowest adc of middle module 
+				run2hit_middle=true;
+		}
+	}
+	
+	//bring in ped and pedsig and tdc corrections
+	Double_t adcgainchannel[Ncalo],ped[Ncalo],pedsig[Ncalo],tdccorrection[Ntdc],adcgainfactor[Ncalo];
+	FILE *f = fopen("slacped_01.dat","r");	
+	//	FILE *f = fopen("ped2.data","r"); sets peds to 0.0
+	FILE *h = fopen("adcgainfactor.dat","r");
+	for(int i=0;i<Ncalo;i++){
+		fscanf(f,"%lf %lf\n", &ped[i], &pedsig[i]);
+		fscanf(h,"%lf\n", &adcgainchannel[i]);
+		adcgainfactor[i]=1000.0/adcgainchannel[i];
+	}
+	FILE *g = fopen("tdccorrection.dat","r");
+	for(int i=0;i<Ntdc;i++){
+		fscanf(g,"%lf\n", &tdccorrection[i]);
+	}
+
+
+//make our histos
+	char *Modname[Ncalo]={"O-01","O-02","O-03","O-04","O-05","M-01A","M-01B","M-01C","M-01D","M-02A","M-02B","M-02C","M-02D","M-03A","M-03B","M-03C","M-03D","M-04A","M-04B","M-04C","M-04D"};
+	char *tModname[Ntdc]={"Y Lower","Y Middle","Y Upper","X Left","Xmiddle","Y OR","X OR","XY AND"};
+	TH1F *hadcraw[Ncalo],*hadcpedsub[Ncalo],*hadcpedsubtdc[Ncalo],*hadccent[Ncalo],*hadccut2[Ncalo];
+	TH1F *htdcraw[Ntdc],*htdcadj[Ntdc];
+	TH1F *hadcesum;
+	hadcesum = new TH1F("hadcesum","Energy Sum",300,-100,histo_max);
+	TH2F *h2hit[4][Ncalo];
+	for ( int i = 0; i < Ntdc ; i++) {
+		htdcraw[i] = new TH1F(Form("htdcraw%02d", i),Form("%s    raw tdc",tModname[i]),300,3000,4500);
+		htdcadj[i] = new TH1F(Form("htdcadj%02d", i),Form("%s    raw tdc",tModname[i]),200,3000,4000);
+	}
+	for ( int i = 0; i < Ncalo ; i++) {
+		hadcraw[i] = new TH1F(Form("hadcraw%02d", i),Form("%s    raw adc",Modname[i]),300,0,300);
+		hadcpedsub[i] = new TH1F(Form("hadcpedsub%02d", i),Form("%s    pedsub adc;ADC; Counts ",Modname[i]),100,-100,histo_max);
+		hadcpedsubtdc[i] = new TH1F(Form("hadcpedsubtdc%02d", i),Form("%s    pedsub tdccut adc;ADC; Counts ",Modname[i]),100,-100,histo_max);
+		hadccent[i] = new TH1F(Form("hadccent%02d", i),Form("%s    fitted adc;ADC; Counts ",Modname[i]),100,-100,histo_max);
+		hadccut2[i] = new TH1F(Form("hadccut2%02d", i),Form("%s    fitted adc;ADC; Counts ",Modname[i]),100,-100,histo_max);
+		for(int j=0; j<4; j++){	
+			h2hit[j][i] = new TH2F(Form("h2hit_%02d_%02d",j,i),Form("%s    fitted adc;ADC; Counts ",Modname[i]),100,-100,1500,100,-100,histo_max);
+		}
+	}
+	int total_clean=0;
+	int nentries = (int)troot->GetEntries();
+	int temp;
+	cout << " Nentries = "<< nentries<< endl;
+	for (int ie = 0; ie < nentries; ie++) {
+		troot->GetEntry(ie);
+		for ( int i = 0; i < Ncalo ; i++) {
+			//cout << ie <<" " << i << " " << adc[i] << " " << adc_index[i] << endl;
+		   hadcraw[i]->Fill(adc[(adc_index[i])]);
+		}
+		for ( int i = 0; i < Ntdc ; i++) {
+			//cout << ie <<" " << i << " " << adc[i] << " " << adc_index[i] << endl;
+			htdcraw[i]->Fill(tdc[i]);//if(ie%100==0){cout<<tdc[i]<<endl;}
+			htdcadj[i]->Fill(tdc[i]+tdccorrection[i]);
+		}
+		
+	}
+
+cout<<"*******^^^^^^^*********    0"<<endl;
+// Plot histograms of raw data 
+TCanvas *holder = new TCanvas("holder","hold",800,800);
+	// tdcs
+	traw = new TPad("traw","Raw TDC spectra",0.0,0.0,800.0,800.0,-1,-1,-2);
+   	traw->Divide(3,3,0.01,0.01,0);
+   	for ( int i = 0; i < Ntdc ; i++) {
+      		traw->cd(i+1);
+				if(y_axis_log){gPad->SetLogy();}
+      		htdcraw[i]->Draw();
+	}
+	 if(!show_rawdata){traw->Close();}
+	//outer modules   
+	craw = new TPad();//"craw","Raw ADC spectra OUTER type",800,800);
+cout<<"*******^^^^^^^*********    1"<<endl;
+   craw->Divide(2,3);
+   if(y_axis_log){craw->SetLogy();}
+   TF1 *f1 = new TF1("f1", "gaus");
+   for ( int i = 0; i < 5 ; i++) {
+      craw->cd(i+1);
+      if(y_axis_log){gPad->SetLogy();}
+      hadcraw[i]->Draw();
+	}
+cout<<"*******^^^^^^^*********    2"<<endl;
+   if(!show_rawdata){craw->Close();}
+	//middle modules
+   craw2 = new TPad();//"craw2","Raw ADC spectra MIDDLE type",800,800);
+   craw2->Divide(4,4);
+   for ( int i = 5; i < Ncalo ; i++) {
+      craw2->cd(i-4);
+   	if(y_axis_log){gPad->SetLogy();}
+		hadcraw[i]->Draw();
+   }
+	if(!show_rawdata){craw2->Close();}
+
+
+   // rescan with ped subtraction
+
+	//tdc with adjustment to gain match
+	TCanvas *tadj = new TCanvas("traw","Raw TDC spectra",800,800,800,800);
+   	traw->Divide(3,3);
+   	for ( int i = 0; i < Ntdc ; i++) {
+      		tadj->cd(i+1);
+				if(y_axis_log){gPad->SetLogy();}
+      		htdcadj[i]->Draw();
+	}
+	if(!show_tdcadj){tadj->Close();}
+
+   Bool_t clean_hit;
+   Int_t number_hit;
+   Int_t ghit;
+   Double_t hit_adc[Ncalo];
+   Int_t hit_mod[Ncalo];
+   double hits[Ncalo+1];
+   double holdesum;
+   for( int i = 0; i <= Ncalo ; i++) {
+      hits[i]=0;
+	}
+//   cout << " Nentries = "<< nentries<< endl;
+   Int_t chits[Ncalo]={0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.};
+   for (int ie = 0; ie < nentries; ie++) {
+      troot->GetEntry(ie);
+      number_hit=0;
+      holdesum=0;
+      for ( int i = 0; i < Ncalo ; i++) {
+	  //cout << ie <<" " << i << " " << adc[i] << " " << adc_index[i] << endl;
+			hadcpedsub[i]->Fill(adcgainfactor[i]*(adc[(adc_index[i])]-ped[i]));
+	if (i==0 || i==2 || i==3 || i==4 || i==14 || i==17){
+			holdesum=holdesum+
+			adcgainfactor[i]*(adc[(adc_index[i])]-ped[i]);
+			}
+			//if(tdc[1]>3700 && tdc[1]<4300 && tdc[4]>3700 && tdc[4]<4300 ){hadcpedsubtdc[i]->Fill(adcgainfactor[i]*(adc[(adc_index[i])]-ped[i]));}
+			if(tdc[7]>3200 && tdc[7]<3600 ){hadcpedsubtdc[i]->Fill(adcgainfactor[i]*(adc[(adc_index[i])]-ped[i]));}
+			if((adc[adc_index[i]]-ped[i])>100.0) {
+	  			hit_adc[number_hit]=(adcgainfactor[i]*(adc[adc_index[i]]-ped[i]));
+	  			hit_mod[number_hit]=i;
+	  			number_hit++;
+			}
+      }
+      hadcesum->Fill(holdesum);
+		hits[number_hit]++;
+		if(number_hit==1) {
+			hadccent[hit_mod[0]]->Fill(hit_adc[0]);
+			chits[ghit]++;
+      }
+	
+		//2 hit method for outer modules
+		if(number_hit==2 && run2hit_outer){
+			Int_t ghit0=hit_mod[0];//cout<<ghit0<<endl;
+			Int_t ghit1=hit_mod[1];//cout<<ghit1<<endl;
+			if(hit_mod[0]==center_block){
+				h2hit[0][ghit1]->Fill(hit_adc[1],hit_adc[0]);
+			}
+			if(hit_mod[1]==center_block){
+				h2hit[0][ghit0]->Fill(hit_adc[0],hit_adc[1]);			
+			}
+		}
+    
+		//2 hit method for middle(2x2) modules
+		if(number_hit==2 && run2hit_middle){
+			Int_t ghit0=hit_mod[0];
+			Int_t ghit1=hit_mod[1];
+			if(ghit0==middle_block||ghit0==middle_block+1||ghit0==middle_block+2||ghit0==middle_block+3){
+				if(ghit0==middle_block){
+					h2hit[0][ghit1]->Fill(hit_adc[1],hit_adc[0]);
+				}
+				if(ghit0==middle_block+1){
+					h2hit[1][ghit1]->Fill(hit_adc[1],hit_adc[0]);
+				}
+				if(ghit0==middle_block+2){
+					h2hit[2][ghit1]->Fill(hit_adc[1],hit_adc[0]);
+				}
+				if(ghit0==middle_block+3){
+					h2hit[3][ghit1]->Fill(hit_adc[1],hit_adc[0]);
+				}
+
+			}
+			if(ghit1==middle_block||ghit1==middle_block+1||ghit1==middle_block+2||ghit1==middle_block+3){
+				if(ghit1==middle_block){
+					h2hit[0][ghit0]->Fill(hit_adc[0],hit_adc[1]);
+				}
+				if(ghit1==middle_block+1){
+					h2hit[1][ghit0]->Fill(hit_adc[0],hit_adc[1]);
+				}
+				if(ghit1==middle_block+2){
+					h2hit[2][ghit0]->Fill(hit_adc[0],hit_adc[1]);
+				}
+				if(ghit1==middle_block+3){
+					h2hit[3][ghit0]->Fill(hit_adc[0],hit_adc[1]);
+				}
+			}		
+		}//close 2hit middle method
+   }//end of for(int ie = 0; ie < nentries; ie++)
+  
+
+
+	for(int i=0;i<Ncalo;i++){
+ //     cout << Modname[i] << "# of clean hits = " << chits[i] << " Frac of total events =  " << float(chits[i])/float(nentries)  << endl;
+		total_clean+=chits[i];
+   }
+//	cout<<"Clean hits "<<total_clean<<endl;
+
+
+  
+      // Plot histograms with pedestal subtraction and gaussian fit    -  outer modules
+   TCanvas *cadc = new TCanvas("cadc","ADC spectra ped sub OUTER type",800,800);
+   cadc->Divide(2,3);
+   Double_t min_fit,max_fit;
+   for(int i=0;i<5;i++){
+	   cadc->cd(i+1);					
+		if(y_axis_log){gPad->SetLogy();}			
+      hadcpedsub[i]->Draw();		
+      hadccent[i]->Draw("same");
+      hadccent[i]->SetLineColor(3);
+      if(hadccent[i]->Integral(10.,1500.) > 100.) {
+			f1->SetParameters(500, 500.,70.);
+			int count = 0;
+			min_fit=50.;max_fit=1500.;
+			bool go = do_fits;
+			while(go){	//this while loops performs iteration to adjust the fit
+				hadccent[i]->Fit(f1,"Q","same", min_fit,max_fit);
+				Double_t mean_old=hadccent[i]->GetFunction("f1")->GetParameter(1);
+				Double_t mean_error_old=hadccent[i]->GetFunction("f1")->GetParError(1);
+				Double_t sigma_old=hadccent[i]->GetFunction("f1")->GetParameter(2);
+				Double_t sigma_error_old=hadccent[i]->GetFunction("f1")->GetParError(2);
+				min_fit = mean_old*(.2+.1*count);
+				max_fit = mean_old*(2.0+.1*count);
+			  	hadccent[i]->Fit(f1,"Q","same", min_fit,max_fit);
+				Double_t mean=hadccent[i]->GetFunction("f1")->GetParameter(1);
+				Double_t mean_error=hadccent[i]->GetFunction("f1")->GetParError(1);
+				Double_t sigma=hadccent[i]->GetFunction("f1")->GetParameter(2);
+				Double_t sigma_error=hadccent[i]->GetFunction("f1")->GetParError(2);
+				double change = mean/(mean+mean_old);
+				count++;
+				if(change >=.49 && change<=.51){go=false;}	
+				if(count>10){go=false;}
+
+			}	
+			double nphoto = mean/sigma*mean/sigma;
+			double photoerror = 2*mean/sigma*mean/sigma*sqrt((mean_error/mean)*(mean_error/mean)+(sigma_error/sigma)*(sigma_error/sigma));
+			// cout<<Modname[i]<<" Mean = "<<mean<<" +/- "<<mean_error<<" Sigma = "<<sigma<<" +/- "<<sigma_error<<" Number of photo electrons = "<<nphoto<<" +/- "<<phototerror<<endl;
+			if(photoerror/nphoto<=.5){
+//				cout<<"||"<< Modname[i]<<"||"<<mean<<"||"<<mean_error<<"||"<<sigma<<"||"<<sigma_error<<"||"<<nphoto<<"||"<<photoerror<< endl;  
+			}       
+		}
+   }//close for loop from line 200
+   if(!show_nongeo){cadc->Close();}
+	
+
+	// Plot histograms with pedestal subtraction and gaussian fit    -  middle modules
+   TCanvas *cadc2 = new TCanvas("cadc2","ADC spectra ped sub MIDDLE type",800,800);
+   cadc2->Divide(4,4);
+   Double_t mean_st,sigma_st,cnt_st;
+	for(int i=5;i<Ncalo;i++){
+		cadc2->cd(i-4);												
+      if(y_axis_log){gPad->SetLogy();}						
+      hadcpedsub[i]->Draw();										
+      hadccent[i]->Draw("same");											
+      hadccent[i]->SetLineColor(3);									
+      if(hadccent[i]->Integral(10.,histo_max-500.) > 100.){			
+			f1->SetParameters(500, 500.,70.);											
+			int count = 0;
+			min_fit=50.;max_fit=histo_max-500.;			
+			hadccent[i]->Fit(f1,"Q","same", min_fit,max_fit);
+			Double_t mean = 0;			
+			bool go = do_fits;
+			while(go){		//this while loops performs iteration to adjust the fit
+				Double_t mean_old=hadccent[i]->GetFunction("f1")->GetParameter(1); 
+				Double_t mean_error_old=hadccent[i]->GetFunction("f1")->GetParError(1);	
+				Double_t sigma_old=hadccent[i]->GetFunction("f1")->GetParameter(2);
+				Double_t sigma_error_old=hadccent[i]->GetFunction("f1")->GetParError(2);
+				min_fit = mean_old*.8;
+				max_fit = mean_old*1.2;if(max_fit>1500){max_fit=1500;}
+		  		hadccent[i]->Fit(f1,"Q","same", min_fit,max_fit);
+				mean=hadccent[i]->GetFunction("f1")->GetParameter(1);
+				Double_t mean_error=hadccent[i]->GetFunction("f1")->GetParError(1);
+				Double_t sigma=hadccent[i]->GetFunction("f1")->GetParameter(2);
+				Double_t sigma_error=hadccent[i]->GetFunction("f1")->GetParError(2);
+				double change = mean/(mean+mean_old);
+				count++;
+				if(change >=.49 && change<=.51){go=false;}
+				if(count>10){go=false;}
+			}
+			double nphoto = mean/sigma*mean/sigma;
+			double photoerror = 2*mean/sigma*mean/sigma*sqrt((mean_error/mean)*(mean_error/mean)+(sigma_error/sigma)*(sigma_error/sigma));
+			//cout<<Modname[i]<<" Mean = "<<mean<<" +/- "<<mean_error<<" Sigma = "<<sigma<<" +/- "<<sigma_error<<" Number of photo electrons = "<<nphoto<<" +/- "<<phototerror<<endl;
+			if(photoerror/nphoto<=.15){
+				cout<<"||"<<Modname[i]<<"||"<<mean<<"||"<<mean_error<<"||"<<sigma<<"||"<<sigma_error<<"||"<< nphoto<<"||"<<photoerror<< endl;  
+			}
+		}//close if loop ~line 253
+   }//closes for loop  ~line 245
+  	if(!show_nongeo){cadc2->Close();}
+
+		
+	//shows pedestal sigma for each module and distribution of modules hit per event
+	if(run_pedsig_hitcount){
+		TCanvas *t5 = new TCanvas("t5","Pedestal Sigma & Hit counter",800,800);
+		t5->Divide(1,2);
+		t5->cd(1);
+		TH1D *h1 = new TH1D("h1","Pedestal Sigma",21,0,21);
+		for(int i=0;i<Ncalo;i++){
+			h1->SetBinContent(i,pedsig[i]);
+		}
+		h1->Draw();   
+		t5->cd(2);
+		TH1D *h2 = new TH1D("h2","Number of Modules hit per event",22,-0.5,21.5);
+		for(int i=0;i<=Ncalo;i++){
+			h2->SetBinContent(i+1,hits[i]);
+			for(int j=0;j<hits[i];j++){
+				h2->Fill(i);
+			}
+		}
+		h2->Draw();
+	}
+
+
+
+ //********************************************************
+ // ADC spectra distributed as the set-up  - geo display
+ //*********************************************************
+ Double_t xdim = 0.48;       
+ Double_t ydim = 0.48;       
+ Double_t sep = 0.005;        // the space between pads
+ 
+ Int_t ww = 900;              // dimensions for the canvas
+ Int_t wh = 900;
+ Int_t wtopx = 800;
+ Int_t wtopy = 20;
+ 
+	if(show_geo){
+		TCanvas * cHist = new TCanvas("cHist", "ADC spectra ped sub", wtopx, wtopy, ww, wh);
+		cHist->Divide(3,3);
+		cHist->SetLogy();
+		    
+		//place Outer module histograms (in order of original adc)
+		for(int i=0;i<5;i++){
+			cHist->cd(div[i]);
+			if(y_axis_log){gPad->SetLogy();}
+			hadcpedsub[i]->Draw();
+			hadccent[i]->Draw("same");
+			hadccent[i]->SetLineColor(3);
+		}
+		 
+	  	//place middle module histograms
+		int loc_ind = 5;
+		for(int i=0;i<4;i++){
+			cHist->cd(div2[i]);
+			TPad * pad1 = new TPad("pad1","pad1",0,ydim+sep, xdim-sep, 1);//top-left
+			TPad * pad2 = new TPad("pad2","pad2",xdim+sep,ydim+sep,1,1);//top-right
+			TPad * pad3 = new TPad("pad3","pad3",xdim+sep,0, 1, ydim-sep); //bottom-right
+			TPad * pad4 = new TPad("pad4","pad4",0,0, xdim-sep, ydim-sep);//bottom-left
+			pad1->Draw();pad1->cd();if(y_axis_log){gPad->SetLogy();}		
+			hadcpedsub[loc_ind]->Draw();
+			hadccent[loc_ind]->Draw("same");
+			hadccent[loc_ind]->SetLineColor(3);
+			loc_ind++;
+			cHist->cd(div2[i]);
+			pad2->Draw();pad2->cd();if(y_axis_log){gPad->SetLogy();}
+			hadcpedsub[loc_ind]->Draw();
+			hadccent[loc_ind]->Draw("same");
+			hadccent[loc_ind]->SetLineColor(3);
+			loc_ind++;
+			cHist->cd(div2[i]);
+			pad3->Draw();pad3->cd();if(y_axis_log){gPad->SetLogy();}
+			hadcpedsub[loc_ind]->Draw();
+			hadccent[loc_ind]->Draw("same");
+			hadccent[loc_ind]->SetLineColor(3);
+			loc_ind++;
+			cHist->cd(div2[i]);
+			pad4->Draw();pad4->cd();if(y_axis_log){gPad->SetLogy();}
+			hadcpedsub[loc_ind]->Draw();
+			hadccent[loc_ind]->Draw("same");
+			hadccent[loc_ind]->SetLineColor(3);
+			loc_ind++;
+			cHist->cd(div2[i]);		
+		}
+	}//close show_geo option
+
+ //********************************************************
+ // Double hit display methods
+ //*********************************************************
+
+	if(run_double_hit){
+		if(run2hit_outer){//loop for outer module double hits
+			TCanvas *doublehit = new TCanvas("2hit","Double hits",wtopx, wtopy, ww, wh);
+			doublehit->Divide(3,3);
+			//place Outer module histograms (in order of original adc)
+			for(int j=0;j<1;j++){	 
+				for(int i=0;i<5;i++){
+					doublehit->cd(div[i]);
+					h2hit[j][i]->Draw("colz");
+				}
+				 
+		  	   //place middle module histograms
+		  	   int loc_ind = 5;
+		  	   for(int i=0;i<4;i++){
+					doublehit->cd(div2[i]);
+					TPad * pad1 = new TPad("pad1","pad1",0,ydim+sep, xdim-sep, 1);//top-left
+					TPad * pad2 = new TPad("pad2","pad2",xdim+sep,ydim+sep,1,1);//top-right
+					TPad * pad3 = new TPad("pad3","pad3",xdim+sep,0, 1, ydim-sep);//bottom-right
+					TPad * pad4 = new TPad("pad4","pad4",0,0, xdim-sep, ydim-sep); //bottom-left
+					pad1->Draw();pad1->cd();
+					h2hit[j][loc_ind]->Draw("colz");
+				
+					loc_ind++;
+					doublehit->cd(div2[i]);
+					pad2->Draw();pad2->cd();
+					h2hit[j][loc_ind]->Draw("colz");
+				
+					loc_ind++;
+					doublehit->cd(div2[i]);
+					pad3->Draw();pad3->cd();
+					h2hit[j][loc_ind]->Draw("colz");
+					
+					loc_ind++;
+					doublehit->cd(div2[i]);
+					pad4->Draw();pad4->cd();
+					h2hit[j][loc_ind]->Draw("colz");
+				
+					loc_ind++;
+					doublehit->cd(div2[i]);		
+				}
+			}
+		}//close loop for outer module double hits
+
+		if(run2hit_middle){//double hits for middle modules
+			TCanvas *doublehit[4];
+			for(int j=0;j<4;j++){	 
+				doublehit[j]= new TCanvas(Form("2hit_%d",j),Form("Double hits_%d",j),wtopx, wtopy, ww, wh);
+				doublehit[j]->Divide(3,3);
+				for(int i=0;i<5;i++){
+					doublehit[j]->cd(div[i]);
+					h2hit[j][i]->Draw("colz");
+				}
+				//place middle module histograms
+		  	   int loc_ind = 5;
+		  	   for(int i=0;i<4;i++){
+					doublehit[j]->cd(div2[i]);
+					TPad * pad1 = new TPad("pad1","pad1",0,ydim+sep, xdim-sep, 1);//top-left
+					TPad * pad2 = new TPad("pad2","pad2",xdim+sep,ydim+sep,1,1);//top-right
+					TPad * pad3 = new TPad("pad3","pad3",xdim+sep,0, 1, ydim-sep); //bottom-right
+					TPad * pad4 = new TPad("pad4","pad4",0,0, xdim-sep, ydim-sep);//bottom-left
+					pad1->Draw();pad1->cd();
+					h2hit[j][loc_ind]->Draw("colz");
+				
+					loc_ind++;
+					doublehit[j]->cd(div2[i]);
+					pad2->Draw();pad2->cd();
+					h2hit[j][loc_ind]->Draw("colz");
+				
+					loc_ind++;
+					doublehit[j]->cd(div2[i]);
+					pad3->Draw();pad3->cd();
+					h2hit[j][loc_ind]->Draw("colz");
+					
+					loc_ind++;
+					doublehit[j]->cd(div2[i]);
+					pad4->Draw();pad4->cd();
+					h2hit[j][loc_ind]->Draw("colz");
+				
+					loc_ind++;
+					doublehit[j]->cd(div2[i]);		
+				}
+			}
+		}//close double hit method for middle modules
+		
+	}//closes run_double_hit option loop
+	if(plot_center_alone){
+		TCanvas *cal = new TCanvas("cal","Calo block",wtopx+10, wtopy-10, ww, wh);
+		hadcpedsubtdc[center_block]->Draw();
+		if(y_axis_log){cal->SetLogy();}
+	}
+	if(plot_energy_sum){
+		TCanvas *esum = new TCanvas("esum","Energy Sum",wtopx+10, wtopy-10, ww, wh);
+		hadcesum->Draw();
+		if(y_axis_log){esum->SetLogy();}
+	}
+
+	c1 = new TPad();
+
+
+
+
+
+   new MyMainFrame(gClient->GetRoot(),200,200);	
+}
+

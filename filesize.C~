@@ -1,0 +1,5 @@
+void filesize(){
+TFile *f = new TFile("cow.dat");
+cout<<f->GetLength()<<endl;
+}
+
